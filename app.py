@@ -1,6 +1,6 @@
 from datetime import datetime
 import os
-import time  # 用於重試時的暫停等待
+import time
 from google import genai
 from google.genai import types
 import requests
@@ -14,7 +14,6 @@ GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzEG7YnA2MXp
 
 
 def log_to_cloud(save_name, role, content):
-  """將對話寫入指定的雲端分頁"""
   if "你的腳本ID" in GOOGLE_SHEET_WEB_APP_URL:
     return
   try:
@@ -25,7 +24,6 @@ def log_to_cloud(save_name, role, content):
 
 
 def get_cloud_save_list():
-  """取得雲端試算表所有的存檔分頁名稱"""
   if "你的腳本ID" in GOOGLE_SHEET_WEB_APP_URL:
     return []
   try:
@@ -39,7 +37,6 @@ def get_cloud_save_list():
 
 
 def load_history_from_cloud(save_name):
-  """從指定的雲端分頁讀取對話紀錄"""
   if "你的腳本ID" in GOOGLE_SHEET_WEB_APP_URL:
     return []
   try:
@@ -156,6 +153,64 @@ else:
     回覆時語氣要生動、貼心，充滿情感，像是真正的情侶在聊天一樣。
     """
 
+
+# 核心發送訊息函式（獨立出來，讓「輸入框發送」跟「手動重試按鈕」都可以共用）
+def generate_ai_response(prompt_text):
+  max_retries = 3
+  retry_delay = 3
+  reply_text = None
+
+  with st.spinner("正在害羞思考中..."):
+    for attempt in range(max_retries):
+      try:
+        formatted_history = []
+        # 注意：這裡抓取歷史時，排除最後一句（因為最後一句就是當前要送出的 prompt_text）
+        for msg in st.session_state.messages[:-1]:
+          role = "user" if msg["role"] == "user" else "model"
+          formatted_history.append(
+              types.Content(
+                  role=role, parts=[types.Part.from_text(text=msg["content"])]
+              )
+          )
+
+        chat = client.chats.create(
+            model=MODEL_NAME,
+            history=formatted_history,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt, temperature=0.85
+            ),
+        )
+
+        response = chat.send_message(prompt_text)
+        reply_text = response.text
+        break
+
+      except Exception as e:
+        error_str = str(e)
+        if (
+            "503" in error_str
+            or "UNAVAILABLE" in error_str
+            or "429" in error_str
+        ) and attempt < (max_retries - 1):
+          time.sleep(retry_delay)
+          continue
+        else:
+          st.error(f"發生了一點小錯誤：{e}")
+          break
+
+  if reply_text:
+    st.markdown(reply_text)
+    st.session_state.messages.append(
+        {"role": "assistant", "content": reply_text}
+    )
+    log_to_cloud(
+        st.session_state.current_save_name,
+        f"AI ({st.session_state.gender})",
+        reply_text,
+    )
+    st.rerun()
+
+
 # 側邊欄控制
 with st.sidebar:
   st.subheader("🛠️ 雲端存檔管理")
@@ -163,6 +218,17 @@ with st.sidebar:
   st.info(f"📂 目前存檔：`{st.session_state.current_save_name}`")
 
   st.markdown("---")
+
+  # 🔥 新增功能：手動重新發送上一句（當遇到卡住或 429 塞車時超好用）
+  if (
+      st.session_state.messages
+      and st.session_state.messages[-1]["role"] == "user"
+  ):
+    if st.button("🔄 重新生成 AI 回覆", use_container_width=True):
+      # 直接拿最後一句玩家的話重新呼叫 AI，但不會重複新增一筆玩家發言
+      last_user_input = st.session_state.messages[-1]["content"]
+      generate_ai_response(last_user_input)
+
   st.subheader("☁️ 載入其他雲端存檔")
   cloud_saves = get_cloud_save_list()
 
@@ -216,55 +282,5 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
       st.session_state.current_save_name, "Player (玩家)", user_input
   )
 
-  with st.chat_message("assistant"):
-    with st.spinner("正在害羞思考中（若遇伺服器忙碌將自動重試）..."):
-      reply_text = None
-      max_retries = 3  # 最多自動重試 3 次
-      retry_delay = 2  # 每次重試間隔 2 秒
-
-      for attempt in range(max_retries):
-        try:
-          formatted_history = []
-          for msg in st.session_state.messages[:-1]:
-            role = "user" if msg["role"] == "user" else "model"
-            formatted_history.append(
-                types.Content(
-                    role=role, parts=[types.Part.from_text(text=msg["content"])]
-                )
-            )
-
-          chat = client.chats.create(
-              model=MODEL_NAME,
-              history=formatted_history,
-              config=types.GenerateContentConfig(
-                  system_instruction=system_prompt, temperature=0.85
-              ),
-          )
-
-          response = chat.send_message(user_input)
-          reply_text = response.text
-          break  # 成功取得回覆就跳出迴圈
-
-        except Exception as e:
-          error_str = str(e)
-          # 如果是 503 或伺服器忙碌錯誤，且還沒達到最大重試次數，就自動等候重試
-          if ("503" in error_str or "UNAVAILABLE" in error_str) and attempt < (
-              max_retries - 1
-          ):
-            time.sleep(retry_delay)
-            continue
-          else:
-            # 其他錯誤或重試耗盡，才顯示錯誤訊息
-            st.error(f"發生了一點小錯誤：{e}")
-            break
-
-      if reply_text:
-        st.markdown(reply_text)
-        st.session_state.messages.append(
-            {"role": "assistant", "content": reply_text}
-        )
-        log_to_cloud(
-            st.session_state.current_save_name,
-            f"AI ({st.session_state.gender})",
-            reply_text,
-        )
+  # 呼叫共用的發送函式
+  generate_ai_response(user_input)
