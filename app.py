@@ -3,13 +3,17 @@ from google import genai
 from google.genai import types
 import streamlit as st
 
-# 1. 設定頁面標題 (必須在最前面)
+# --- 這裡統一設定你想要用的模型名稱，以後只要改這裡就好！ ---
+MODEL_NAME = "gemini-2.5-flash"  # 或者用 "gemini-1.5-flash"
+IMAGE_MODEL_NAME = "imagen-3.0-generate-002"
+
+# 1. 設定頁面標題
 st.set_page_config(page_title="AI 戀愛互動遊戲", page_icon="💖", layout="centered")
 
 st.title("💖 專屬戀愛對話與互動空間")
 st.write("和你的戀人甜蜜對話，解鎖專屬浪漫畫面吧！")
 
-# 2. 讀取 API Key (這裡示範側邊欄輸入，或你也可以改成直接從環境變數讀取)
+# 2. 讀取 API Key
 try:
   api_key = st.secrets["GEMINI_API_KEY"]
 except Exception:
@@ -21,7 +25,7 @@ if not api_key:
 
 client = genai.Client(api_key=api_key)
 
-# 3. 設定角色性格 (System Instruction)
+# 3. 設定角色性格
 system_prompt = """
 你是一個甜蜜、溫柔且帶點傲嬌或幽默感的戀愛對話角色。
 你的任務是與使用者進行沉浸式的浪漫戀愛對話。
@@ -33,7 +37,7 @@ system_prompt = """
 if "messages" not in st.session_state:
   st.session_state.messages = []
 
-# 5. 渲染過去的對話訊息
+# 5. 渲染過去的對話
 for message in st.session_state.messages:
   with st.chat_message(message["role"]):
     if message["type"] == "text":
@@ -41,7 +45,7 @@ for message in st.session_state.messages:
     elif message["type"] == "image":
       st.image(message["content"], caption=message.get("caption", ""))
 
-# 6. 接收使用者的輸入
+# 6. 使用者輸入與對話邏輯
 if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
   st.session_state.messages.append(
       {"role": "user", "type": "text", "content": user_input}
@@ -52,7 +56,6 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
   with st.chat_message("assistant"):
     with st.spinner("正在害羞思考中..."):
       try:
-        # 將歷史對話轉換為 Gemini 支援的格式
         formatted_history = []
         for msg in st.session_state.messages[:-1]:
           role = "user" if msg["role"] == "user" else "model"
@@ -63,9 +66,9 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
                 )
             )
 
-        # 建立對話連線並發送訊息
+        # 這裡直接引用上面定義的變數，不怕忘記！
         chat = client.chats.create(
-            model="gemini-3.8 flash",
+            model=MODEL_NAME,
             history=formatted_history,
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt, temperature=0.8
@@ -80,7 +83,7 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
             {"role": "assistant", "type": "text", "content": reply_text}
         )
 
-        # 圖片生成觸發邏輯
+        # 圖片生成部分
         if "拍張照" in user_input or "看你" in user_input or "約會" in user_input:
           st.info("📸 正在生成專屬約會畫面...")
           image_prompt = (
@@ -88,7 +91,7 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
               f" based on context: {user_input}, high quality, beautiful lighting"
           )
           img_result = client.models.generate_images(
-              model="imagen-3.0-generate-002",
+              model=IMAGE_MODEL_NAME,
               prompt=image_prompt,
               config=types.GenerateImagesConfig(
                   number_of_images=1,
