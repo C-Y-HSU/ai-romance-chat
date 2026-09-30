@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 from google import genai
 from google.genai import types
@@ -8,26 +9,43 @@ import streamlit as st
 MODEL_NAME = "gemini-3.5-flash"
 
 # 【請在此填入你的 Google Apps Script 網頁應用程式網址】
-GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzEG7YnA2MXpcYS38JywKFAWNuDBCtatZXWJxvT4JX2UR2qb41Mo6DYQ5FFZFQrCUm1/exec"
+GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/你的腳本ID/exec"
 
 
-def log_to_google_sheet(role, content):
-  """默默備份對話到後台試算表"""
+def log_to_cloud(save_name, role, content):
+  """將對話寫入指定的雲端分頁"""
   if "你的腳本ID" in GOOGLE_SHEET_WEB_APP_URL:
     return
   try:
-    payload = {"role": role, "content": content}
+    payload = {"save_name": save_name, "role": role, "content": content}
     requests.post(GOOGLE_SHEET_WEB_APP_URL, json=payload, timeout=3)
   except Exception as e:
     print(f"後台備份失敗: {e}")
 
 
-def load_history_from_cloud():
-  """從雲端試算表讀取歷史紀錄（供繼續遊戲使用）"""
+def get_cloud_save_list():
+  """取得雲端試算表所有的存檔分頁名稱"""
   if "你的腳本ID" in GOOGLE_SHEET_WEB_APP_URL:
     return []
   try:
-    response = requests.get(GOOGLE_SHEET_WEB_APP_URL, timeout=5)
+    response = requests.get(
+        f"{GOOGLE_SHEET_WEB_APP_URL}?action=list_saves", timeout=5
+    )
+    return response.json()
+  except Exception as e:
+    print(f"取得存檔列表失敗: {e}")
+    return []
+
+
+def load_history_from_cloud(save_name):
+  """從指定的雲端分頁讀取對話紀錄"""
+  if "你的腳本ID" in GOOGLE_SHEET_WEB_APP_URL:
+    return []
+  try:
+    response = requests.get(
+        f"{GOOGLE_SHEET_WEB_APP_URL}?action=get_history&save_name={save_name}",
+        timeout=5,
+    )
     data = response.json()
     messages = []
     for row in data:
@@ -39,7 +57,7 @@ def load_history_from_cloud():
         messages.append({"role": "assistant", "content": content})
     return messages
   except Exception as e:
-    print(f"載入雲端存檔失敗: {e}")
+    print(f"載入存檔失敗: {e}")
     return []
 
 
@@ -66,13 +84,17 @@ if "messages" not in st.session_state:
 if "game_started" not in st.session_state:
   st.session_state.game_started = False
 
-# 如果還沒開始遊戲，或者點擊了「重新設定角色」，顯示首頁選角與表單
+# 預設存檔名稱（如果玩家沒輸入，就用當前日期時間）
+default_save_name = datetime.now().strftime("%Y-%m-%d_%H%M")
+if "current_save_name" not in st.session_state:
+  st.session_state.current_save_name = default_save_name
+
+# 如果還沒開始遊戲，顯示首頁設定與存檔命名
 if not st.session_state.api_key or not st.session_state.game_started:
   st.markdown("### 👋 歡迎來到你們的專屬戀愛小天地！")
-  st.write("請選擇你的 AI 戀人身份：")
+  st.write("請設定本次的戀愛存檔與角色：")
 
   with st.form("setup_form"):
-    # 依據目前的性別自動預選下拉選單
     default_index = 0 if st.session_state.gender == "男友" else 1
     gender_choice = st.selectbox(
         "選擇你的 AI 戀人身份",
@@ -80,7 +102,13 @@ if not st.session_state.api_key or not st.session_state.game_started:
         index=default_index,
     )
 
-    # 這裡會自動帶入已經存好的 API Key，不需要重新手動輸入！
+    # 玩家自訂存檔名稱欄位
+    custom_save_input = st.text_input(
+        "存檔名稱 (留空則自動以目前時間命名)",
+        value=st.session_state.current_save_name,
+        placeholder="例如：第一次約會、甜蜜日常",
+    )
+
     user_api_key_input = st.text_input(
         "請輸入 Gemini API Key",
         value=st.session_state.api_key,
@@ -96,7 +124,16 @@ if not st.session_state.api_key or not st.session_state.game_started:
         st.session_state.gender = (
             "男友" if "男友" in gender_choice else "女友"
         )
-        st.session_state.game_started = True  # 標記為遊戲已開始，進入聊天室
+
+        # 決定存檔名稱
+        if custom_save_input.strip():
+          st.session_state.current_save_name = custom_save_input.strip()
+        else:
+          st.session_state.current_save_name = datetime.now().strftime(
+              "%Y-%m-%d_%H%M"
+          )
+
+        st.session_state.game_started = True
         st.rerun()
       else:
         st.error("請輸入有效的 API Key 喔！")
@@ -121,32 +158,44 @@ else:
     回覆時語氣要生動、貼心，充滿情感，像是真正的情侶在聊天一樣。
     """
 
-# 側邊欄控制
+# 側邊欄控制（存檔與分頁選單）
 with st.sidebar:
-  st.subheader("🛠️ 遊戲存檔選單")
-  st.write(
-      f"當前伴侶：**{ '帥氣男友 💙' if st.session_state.gender == '男友' else '甜美女友 💖' }**"
-  )
-
-  if st.button("🔄 從頭再來 (新遊戲)", use_container_width=True):
-    st.session_state.messages = []
-    log_to_google_sheet("System", f"--- 玩家重置了對話 ---")
-    st.success("已開啟全新戀情！")
-    st.rerun()
-
-  if st.button("☁️ 載入上次雲端存檔", use_container_width=True):
-    with st.spinner("正在讀取雲端回憶..."):
-      cloud_msgs = load_history_from_cloud()
-      if cloud_msgs:
-        st.session_state.messages = cloud_msgs
-        st.success("成功載入上次的甜蜜進度！")
-        st.rerun()
-      else:
-        st.warning("找不到先前的雲端存檔記錄喔！")
+  st.subheader("🛠️ 雲端存檔管理")
+  st.write(f"當前伴侶：**{st.session_state.gender}**")
+  st.info(f"📂 目前存檔：`{st.session_state.current_save_name}`")
 
   st.markdown("---")
-  # 重新設定角色按鈕：把 game_started 設為 False，保留 API Key 回到首頁選角
-  if st.button("⚙️ 重新設定角色", use_container_width=True):
+  st.subheader("☁️ 載入其他雲端存檔")
+  cloud_saves = get_cloud_save_list()
+
+  if cloud_saves:
+    selected_save = st.selectbox(
+        "選擇要載入的存檔",
+        cloud_saves,
+        index=(
+            cloud_saves.index(st.session_state.current_save_name)
+            if st.session_state.current_save_name in cloud_saves
+            else 0
+        ),
+    )
+    if st.button("📥 載入選定存檔", use_container_width=True):
+      st.session_state.current_save_name = selected_save
+      st.session_state.messages = load_history_from_cloud(selected_save)
+      st.success(f"成功載入存檔：{selected_save}")
+      st.rerun()
+  else:
+    st.write("目前尚無雲端存檔記錄。")
+
+  st.markdown("---")
+  if st.button("🔄 建立新存檔/新遊戲", use_container_width=True):
+    st.session_state.messages = []
+    st.session_state.current_save_name = datetime.now().strftime(
+        "%Y-%m-%d_%H%M"
+    )
+    st.success("已重置為新存檔！")
+    st.rerun()
+
+  if st.button("⚙️ 重新設定身份/存檔名稱", use_container_width=True):
     st.session_state.game_started = False
     st.rerun()
 
@@ -165,7 +214,10 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
   with st.chat_message("user"):
     st.markdown(user_input)
 
-  log_to_google_sheet("Player (玩家)", user_input)
+  # 自動寫入當前存檔名稱對應的 Google 試算表分頁
+  log_to_cloud(
+      st.session_state.current_save_name, "Player (玩家)", user_input
+  )
 
   with st.chat_message("assistant"):
     with st.spinner("正在害羞思考中..."):
@@ -195,7 +247,11 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
             {"role": "assistant", "content": reply_text}
         )
 
-        log_to_google_sheet(f"AI ({st.session_state.gender})", reply_text)
+        log_to_cloud(
+            st.session_state.current_save_name,
+            f"AI ({st.session_state.gender})",
+            reply_text,
+        )
 
       except Exception as e:
         st.error(f"發生了一點小錯誤：{e}")
