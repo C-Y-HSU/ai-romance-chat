@@ -7,7 +7,7 @@ import requests
 import streamlit as st
 
 # --- 穩定運作的主力模型 ---
-MODEL_NAME = "gemini-3.5-flash"
+MODEL_NAME = "gemini-3.5-flash-lite"
 
 # 【請在此填入你的 Google Apps Script 網頁應用程式網址】
 GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzEG7YnA2MXpcYS38JywKFAWNuDBCtatZXWJxvT4JX2UR2qb41Mo6DYQ5FFZFQrCUm1/exec"
