@@ -91,7 +91,7 @@ if "current_save_name" not in st.session_state:
   st.session_state.current_save_name = default_save_name
 
 # ==========================================
-# 階段一：如果還沒輸入/驗證 API Key，先顯示輸入金鑰畫面
+# 階段一：輸入並驗證 API Key
 # ==========================================
 if not st.session_state.key_verified:
   st.markdown("### 👋 歡迎來到你們的專屬戀愛小天地！")
@@ -116,43 +116,49 @@ if not st.session_state.key_verified:
   st.stop()
 
 # ==========================================
-# 階段二：金鑰已驗證，顯示「選擇存檔與角色」的首頁選單
+# 階段二：動態選單（支援下拉式選單選擇現有存檔）
 # ==========================================
 if not st.session_state.game_started:
   st.markdown("### 📂 選擇你的戀愛存檔與角色身份")
-  st.write("你可以載入過去的雲端存檔，或是建立一個全新的戀愛冒險：")
+  st.write("你可以從下方下拉選單載入過去的雲端存檔，或是建立新存檔：")
 
   # 抓取雲端現有的存檔列表
   cloud_saves = get_cloud_save_list(st.session_state.api_key)
 
-  with st.form("setup_form"):
-    default_index = 0 if st.session_state.gender == "男友" else 1
-    gender_choice = st.selectbox(
-        "選擇你的 AI 戀人身份",
-        ("帥氣溫柔男友 💙", "甜美傲嬌女友 💖"),
-        index=default_index,
-    )
+  default_index = 0 if st.session_state.gender == "男友" else 1
+  gender_choice = st.selectbox(
+      "選擇你的 AI 戀人身份", ("帥氣溫柔男友 💙", "甜美傲嬌女友 💖"), index=default_index
+  )
 
-    # 存檔選擇模式：載入現有存檔 OR 建立新存檔
-    save_mode = st.radio(
-        "選擇存檔方式", ("載入現有雲端存檔", "建立新存檔 (自訂或自動命名)")
-    )
+  save_mode = st.radio(
+      "選擇存檔方式", ("載入現有雲端存檔", "建立新存檔 (自訂或自動命名)")
+  )
 
-    selected_existing_save = None
-    custom_new_save = ""
+  selected_existing_save = None
+  custom_new_save = ""
 
-    if save_mode == "載入現有雲端存檔" and cloud_saves:
-      selected_existing_save = st.selectbox("選擇要載入的存檔", cloud_saves)
-    else:
-      custom_new_save = st.text_input(
-          "新存檔名稱 (留空則自動以目前時間命名)",
-          value=datetime.now().strftime("%Y-%m-%d_%H%M"),
-          placeholder="例如：第一次約會、甜蜜日常",
+  if save_mode == "載入現有雲端存檔":
+    if cloud_saves:
+      selected_existing_save = st.selectbox(
+          "請選擇要載入的雲端存檔分頁", cloud_saves
       )
+    else:
+      st.warning(
+          "目前雲端試算表中還沒有任何存檔，請選擇「建立新存檔」開始第一場冒險！"
+      )
+  else:
+    custom_new_save = st.text_input(
+        "新存檔名稱 (留空則自動以目前時間命名)",
+        value=datetime.now().strftime("%Y-%m-%d_%H%M"),
+        placeholder="例如：第一次約會、甜蜜日常",
+    )
 
-    start_button = st.form_submit_button("✨ 開始戀愛冒險")
-
-    if start_button:
+  st.markdown("---")
+  col1, col2 = st.columns(2)
+  with col1:
+    if st.button(
+        "✨ 開始戀愛冒險", use_container_width=True, type="primary"
+    ):
       st.session_state.gender = "男友" if "男友" in gender_choice else "女友"
 
       if save_mode == "載入現有雲端存檔" and cloud_saves:
@@ -172,10 +178,10 @@ if not st.session_state.game_started:
       st.session_state.game_started = True
       st.rerun()
 
-  # 提供一個按鈕可以返回修改 API Key
-  if st.button("⬅️ 變更 API Key"):
-    st.session_state.key_verified = False
-    st.rerun()
+  with col2:
+    if st.button("⬅️ 變更 API Key", use_container_width=True):
+      st.session_state.key_verified = False
+      st.rerun()
 
   st.stop()
 
@@ -192,7 +198,7 @@ if st.session_state.gender == "男友":
     """
 else:
   system_prompt = """
-    q你是一個甜蜜、溫柔且帶點傲嬌或可愛撒嬌的女友角色。
+    你是一個甜蜜、溫柔且帶點傲嬌或可愛撒嬌的女友角色。
     你的任務是與使用者進行沉浸式的浪漫戀愛對話。
     回覆時語氣要生動、貼心，充滿情感，像是真正的情侶在聊天一樣。
     """
