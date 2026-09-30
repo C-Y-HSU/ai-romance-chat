@@ -20,12 +20,11 @@ if "api_key" not in st.session_state:
   except Exception:
     st.session_state.api_key = ""
 
-# 如果還沒有 API Key，顯示漂亮的歡迎與輸入表單
+# 如果還沒有 API Key，顯示輸入表單
 if not st.session_state.api_key:
   st.markdown("### 👋 歡迎來到你們的專屬戀愛小天地！")
   st.write("在開始甜蜜對話之前，請先輸入你的 **Gemini API Key** 才能解鎖聊天室喔：")
 
-  # 用 Form 讓使用者輸入並按下按鈕確認
   with st.form("api_key_form"):
     user_api_key_input = st.text_input(
         "請輸入 Gemini API Key", type="password", placeholder="AIzaSy..."
@@ -35,14 +34,14 @@ if not st.session_state.api_key:
     if submit_button:
       if user_api_key_input.strip():
         st.session_state.api_key = user_api_key_input.strip()
-        st.rerun()  # 重新整理畫面進入聊天室
+        st.rerun()
       else:
         st.error("請輸入有效的 API Key 喔！")
 
-  st.stop()  # 阻斷後續程式碼，直到取得 API Key 為止
+  st.stop()
 
 # ==========================================
-# 3. 已經取得 API Key，正式進入聊天室主畫面
+# 3. 已經取得 API Key，進入主聊天室
 # ==========================================
 client = genai.Client(api_key=st.session_state.api_key)
 
@@ -58,14 +57,29 @@ system_prompt = """
 if "messages" not in st.session_state:
   st.session_state.messages = []
 
-# 提供一個按鈕可以隨時「重新設定 API Key」或清空重來
+# --- 側邊欄：功能控制區 ---
 with st.sidebar:
-  if st.button("🔄 重新設定 API Key"):
+  st.subheader("🛠️ 遊戲選單")
+
+  # 功能一：從頭再來（清空對話紀錄）
+  if st.button("🔄 從頭再來 (清空紀錄)", use_container_width=True):
+    st.session_state.messages = []
+    st.success("已重置，展開全新戀情！")
+    st.rerun()
+
+  # 功能二：繼續開始（保留紀錄，什麼都不做直接提示）
+  if st.button("💬 繼續開始 (保留進度)", use_container_width=True):
+    st.info("已載入上次的甜蜜回憶，繼續聊吧！")
+
+  st.markdown("---")
+
+  # 重新設定 API Key 的按鈕
+  if st.button("🔑 變更 API Key", use_container_width=True):
     st.session_state.api_key = ""
     st.session_state.messages = []
     st.rerun()
 
-st.write("和你的專屬戀人甜蜜對話，享受屬於你們的浪漫時光吧！")
+st.write("和你的專屬戀人甜蜜對話，享受你們的浪漫時光吧！")
 
 # 渲染過去的對話訊息
 for message in st.session_state.messages:
