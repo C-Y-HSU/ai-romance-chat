@@ -4,7 +4,7 @@ from google.genai import types
 import streamlit as st
 
 # --- 針對 Free tier 優化的穩定模型設定 ---
-MODEL_NAME = "gemini-1.5-flash"  # 免費方案最穩定、最推薦的主力模型
+MODEL_NAME = "gemini-3.8-flash"  # 免費方案最穩定、最推薦的主力模型
 IMAGE_MODEL_NAME = "imagen-3.0-generate-002"
 
 # 1. 設定頁面標題
