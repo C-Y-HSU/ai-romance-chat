@@ -169,7 +169,7 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
     with st.spinner("正在害羞思考中..."):
       try:
         formatted_history = []
-        for msg in t := st.session_state.messages[:-1]:
+        for msg in st.session_state.messages[:-1]:
           role = "user" if msg["role"] == "user" else "model"
           formatted_history.append(
               types.Content(
