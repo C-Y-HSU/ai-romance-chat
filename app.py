@@ -9,7 +9,7 @@ import streamlit as st
 MODEL_NAME = "gemini-3.5-flash"
 
 # 【請在此填入你的 Google Apps Script 網頁應用程式網址】
-GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/你的腳本ID/exec"
+GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzEG7YnA2MXpcYS38JywKFAWNuDBCtatZXWJxvT4JX2UR2qb41Mo6DYQ5FFZFQrCUm1/exec"
 
 
 def log_to_cloud(save_name, role, content):
