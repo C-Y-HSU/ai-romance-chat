@@ -1,8 +1,39 @@
-# 初始化歷史訊息清單（如果沒有就建立一個空的）
+import os
+from google import genai
+from google.genai import types
+import streamlit as st
+
+# 1. 設定頁面標題 (必須在最前面)
+st.set_page_config(page_title="AI 戀愛互動遊戲", page_icon="💖", layout="centered")
+
+st.title("💖 專屬戀愛對話與互動空間")
+st.write("和你的戀人甜蜜對話，解鎖專屬浪漫畫面吧！")
+
+# 2. 讀取 API Key (這裡示範側邊欄輸入，或你也可以改成直接從環境變數讀取)
+try:
+  api_key = st.secrets["GEMINI_API_KEY"]
+except Exception:
+  api_key = st.sidebar.text_input("請輸入 Gemini API Key", type="password")
+
+if not api_key:
+  st.warning("請先設定 Gemini API Key 才能開始遊戲喔！")
+  st.stop()
+
+client = genai.Client(api_key=api_key)
+
+# 3. 設定角色性格 (System Instruction)
+system_prompt = """
+你是一個甜蜜、溫柔且帶點傲嬌或幽默感的戀愛對話角色。
+你的任務是與使用者進行沉浸式的浪漫戀愛對話。
+回覆時語氣要生動、貼心，充滿情感，像是真正的情侶在聊天一樣。
+偶爾可以撒嬌或關心對方。
+"""
+
+# 4. 初始化對話紀錄
 if "messages" not in st.session_state:
   st.session_state.messages = []
 
-# 渲染過去的對話訊息
+# 5. 渲染過去的對話訊息
 for message in st.session_state.messages:
   with st.chat_message(message["role"]):
     if message["type"] == "text":
@@ -10,23 +41,20 @@ for message in st.session_state.messages:
     elif message["type"] == "image":
       st.image(message["content"], caption=message.get("caption", ""))
 
-# 接收使用者的輸入
+# 6. 接收使用者的輸入
 if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
-  # 1. 記錄並顯示使用者的訊息
   st.session_state.messages.append(
       {"role": "user", "type": "text", "content": user_input}
   )
   with st.chat_message("user"):
     st.markdown(user_input)
 
-  # 2. 呼叫 Gemini 取得文字回覆
   with st.chat_message("assistant"):
     with st.spinner("正在害羞思考中..."):
       try:
-        # 將 Streamlit 裡記錄的對話歷史轉換成 Gemini SDK 需要的格式
-        # 這樣每次發送都會帶著完整的上下文，不會發生 client 被關閉的問題
+        # 將歷史對話轉換為 Gemini 支援的格式
         formatted_history = []
-        for msg in st.session_state.messages[:-1]:  # 排除剛剛才加進去的最新一句
+        for msg in st.session_state.messages[:-1]:
           role = "user" if msg["role"] == "user" else "model"
           if msg["type"] == "text":
             formatted_history.append(
@@ -35,7 +63,7 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
                 )
             )
 
-        # 建立 chat session 並帶入完整的歷史紀錄與 system instruction
+        # 建立對話連線並發送訊息
         chat = client.chats.create(
             model="gemini-2.5-flash",
             history=formatted_history,
@@ -44,7 +72,6 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
             ),
         )
 
-        # 發送當前訊息
         response = chat.send_message(user_input)
         reply_text = response.text
 
@@ -53,7 +80,7 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
             {"role": "assistant", "type": "text", "content": reply_text}
         )
 
-        # (選擇性) 觸發圖片生成的邏輯保持不變...
+        # 圖片生成觸發邏輯
         if "拍張照" in user_input or "看你" in user_input or "約會" in user_input:
           st.info("📸 正在生成專屬約會畫面...")
           image_prompt = (
