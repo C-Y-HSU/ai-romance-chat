@@ -33,7 +33,6 @@ def load_history_from_cloud():
     for row in data:
       role_raw = row.get("role", "")
       content = row.get("content", "")
-      # 過濾掉系統提示，只還原玩家與 AI 的對話
       if "Player" in role_raw:
         messages.append({"role": "user", "content": content})
       elif "AI" in role_raw:
@@ -64,18 +63,24 @@ if "gender" not in st.session_state:
 if "messages" not in st.session_state:
   st.session_state.messages = []
 
-# 如果還沒開始遊戲，顯示設定表單
-if not st.session_state.api_key or "game_started" not in st.session_state:
+if "game_started" not in st.session_state:
+  st.session_state.game_started = False
+
+# 如果還沒開始遊戲，或者點擊了「重新設定角色」，顯示首頁選角與表單
+if not st.session_state.api_key or not st.session_state.game_started:
   st.markdown("### 👋 歡迎來到你們的專屬戀愛小天地！")
-  st.write("請先完成以下設定：")
+  st.write("請選擇你的 AI 戀人身份：")
 
   with st.form("setup_form"):
+    # 依據目前的性別自動預選下拉選單
+    default_index = 0 if st.session_state.gender == "男友" else 1
     gender_choice = st.selectbox(
         "選擇你的 AI 戀人身份",
         ("帥氣溫柔男友 💙", "甜美傲嬌女友 💖"),
-        index=0,
+        index=default_index,
     )
 
+    # 這裡會自動帶入已經存好的 API Key，不需要重新手動輸入！
     user_api_key_input = st.text_input(
         "請輸入 Gemini API Key",
         value=st.session_state.api_key,
@@ -91,7 +96,7 @@ if not st.session_state.api_key or "game_started" not in st.session_state:
         st.session_state.gender = (
             "男友" if "男友" in gender_choice else "女友"
         )
-        st.session_state.game_started = True
+        st.session_state.game_started = True  # 標記為遊戲已開始，進入聊天室
         st.rerun()
       else:
         st.error("請輸入有效的 API Key 喔！")
@@ -116,21 +121,19 @@ else:
     回覆時語氣要生動、貼心，充滿情感，像是真正的情侶在聊天一樣。
     """
 
-# 側邊欄控制（偽裝成普通的遊戲選單）
+# 側邊欄控制
 with st.sidebar:
   st.subheader("🛠️ 遊戲存檔選單")
   st.write(
       f"當前伴侶：**{ '帥氣男友 💙' if st.session_state.gender == '男友' else '甜美女友 💖' }**"
   )
 
-  # 從頭再來按鈕
   if st.button("🔄 從頭再來 (新遊戲)", use_container_width=True):
     st.session_state.messages = []
     log_to_google_sheet("System", f"--- 玩家重置了對話 ---")
     st.success("已開啟全新戀情！")
     st.rerun()
 
-  # 雲端續玩按鈕（只顯示時間段概念，不露餡）
   if st.button("☁️ 載入上次雲端存檔", use_container_width=True):
     with st.spinner("正在讀取雲端回憶..."):
       cloud_msgs = load_history_from_cloud()
@@ -142,9 +145,9 @@ with st.sidebar:
         st.warning("找不到先前的雲端存檔記錄喔！")
 
   st.markdown("---")
-  if st.button("⚙️ 重新設定", use_container_width=True):
+  # 重新設定角色按鈕：把 game_started 設為 False，保留 API Key 回到首頁選角
+  if st.button("⚙️ 重新設定角色", use_container_width=True):
     st.session_state.game_started = False
-    st.session_state.messages = []
     st.rerun()
 
 st.write(
@@ -162,7 +165,6 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
   with st.chat_message("user"):
     st.markdown(user_input)
 
-  # 默默備份到你的 Google 試算表後台
   log_to_google_sheet("Player (玩家)", user_input)
 
   with st.chat_message("assistant"):
@@ -193,7 +195,6 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
             {"role": "assistant", "content": reply_text}
         )
 
-        # 默默備份 AI 回覆到你的 Google 試算表後台
         log_to_google_sheet(f"AI ({st.session_state.gender})", reply_text)
 
       except Exception as e:
