@@ -65,7 +65,7 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
 
         # 建立對話連線並發送訊息
         chat = client.chats.create(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             history=formatted_history,
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt, temperature=0.8
