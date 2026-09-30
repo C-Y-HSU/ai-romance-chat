@@ -4,7 +4,7 @@ from google.genai import types
 import streamlit as st
 
 # --- 這裡統一設定你想要用的模型名稱，以後只要改這裡就好！ ---
-MODEL_NAME = "gemini-2.5-flash"  # 或者用 "gemini-1.5-flash"
+MODEL_NAME = "gemini-3.8-flash"
 IMAGE_MODEL_NAME = "imagen-3.0-generate-002"
 
 # 1. 設定頁面標題
