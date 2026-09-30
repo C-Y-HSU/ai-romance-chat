@@ -1,5 +1,6 @@
 from datetime import datetime
 import os
+import time  # 用於重試時的暫停等待
 from google import genai
 from google.genai import types
 import requests
@@ -9,7 +10,7 @@ import streamlit as st
 MODEL_NAME = "gemini-3.5-flash"
 
 # 【請在此填入你的 Google Apps Script 網頁應用程式網址】
-GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzEG7YnA2MXpcYS38JywKFAWNuDBCtatZXWJxvT4JX2UR2qb41Mo6DYQ5FFZFQrCUm1/exec"
+GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/library/d/1tioU46bkNgUYEGobRHnQMeFfeULjRMfWlUgvkvgKmMfeLC2j3SjZJbhq/3"
 
 
 def log_to_cloud(save_name, role, content):
@@ -84,12 +85,11 @@ if "messages" not in st.session_state:
 if "game_started" not in st.session_state:
   st.session_state.game_started = False
 
-# 預設存檔名稱（如果玩家沒輸入，就用當前日期時間）
 default_save_name = datetime.now().strftime("%Y-%m-%d_%H%M")
 if "current_save_name" not in st.session_state:
   st.session_state.current_save_name = default_save_name
 
-# 如果還沒開始遊戲，顯示首頁設定與存檔命名
+# 首頁設定畫面
 if not st.session_state.api_key or not st.session_state.game_started:
   st.markdown("### 👋 歡迎來到你們的專屬戀愛小天地！")
   st.write("請設定本次的戀愛存檔與角色：")
@@ -102,7 +102,6 @@ if not st.session_state.api_key or not st.session_state.game_started:
         index=default_index,
     )
 
-    # 玩家自訂存檔名稱欄位
     custom_save_input = st.text_input(
         "存檔名稱 (留空則自動以目前時間命名)",
         value=st.session_state.current_save_name,
@@ -125,7 +124,6 @@ if not st.session_state.api_key or not st.session_state.game_started:
             "男友" if "男友" in gender_choice else "女友"
         )
 
-        # 決定存檔名稱
         if custom_save_input.strip():
           st.session_state.current_save_name = custom_save_input.strip()
         else:
@@ -158,7 +156,7 @@ else:
     回覆時語氣要生動、貼心，充滿情感，像是真正的情侶在聊天一樣。
     """
 
-# 側邊欄控制（存檔與分頁選單）
+# 側邊欄控制
 with st.sidebar:
   st.subheader("🛠️ 雲端存檔管理")
   st.write(f"當前伴侶：**{st.session_state.gender}**")
@@ -214,44 +212,59 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
   with st.chat_message("user"):
     st.markdown(user_input)
 
-  # 自動寫入當前存檔名稱對應的 Google 試算表分頁
   log_to_cloud(
       st.session_state.current_save_name, "Player (玩家)", user_input
   )
 
   with st.chat_message("assistant"):
-    with st.spinner("正在害羞思考中..."):
-      try:
-        formatted_history = []
-        for msg in st.session_state.messages[:-1]:
-          role = "user" if msg["role"] == "user" else "model"
-          formatted_history.append(
-              types.Content(
-                  role=role, parts=[types.Part.from_text(text=msg["content"])]
-              )
+    with st.spinner("正在害羞思考中（若遇伺服器忙碌將自動重試）..."):
+      reply_text = None
+      max_retries = 3  # 最多自動重試 3 次
+      retry_delay = 2  # 每次重試間隔 2 秒
+
+      for attempt in range(max_retries):
+        try:
+          formatted_history = []
+          for msg in st.session_state.messages[:-1]:
+            role = "user" if msg["role"] == "user" else "model"
+            formatted_history.append(
+                types.Content(
+                    role=role, parts=[types.Part.from_text(text=msg["content"])]
+                )
+            )
+
+          chat = client.chats.create(
+              model=MODEL_NAME,
+              history=formatted_history,
+              config=types.GenerateContentConfig(
+                  system_instruction=system_prompt, temperature=0.85
+              ),
           )
 
-        chat = client.chats.create(
-            model=MODEL_NAME,
-            history=formatted_history,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt, temperature=0.85
-            ),
-        )
+          response = chat.send_message(user_input)
+          reply_text = response.text
+          break  # 成功取得回覆就跳出迴圈
 
-        response = chat.send_message(user_input)
-        reply_text = response.text
+        except Exception as e:
+          error_str = str(e)
+          # 如果是 503 或伺服器忙碌錯誤，且還沒達到最大重試次數，就自動等候重試
+          if ("503" in error_str or "UNAVAILABLE" in error_str) and attempt < (
+              max_retries - 1
+          ):
+            time.sleep(retry_delay)
+            continue
+          else:
+            # 其他錯誤或重試耗盡，才顯示錯誤訊息
+            st.error(f"發生了一點小錯誤：{e}")
+            break
 
+      if reply_text:
         st.markdown(reply_text)
         st.session_state.messages.append(
             {"role": "assistant", "content": reply_text}
         )
-
         log_to_cloud(
             st.session_state.current_save_name,
             f"AI ({st.session_state.gender})",
             reply_text,
         )
-
-      except Exception as e:
-        st.error(f"發生了一點小錯誤：{e}")
