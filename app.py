@@ -23,8 +23,9 @@ def log_to_cloud(save_name, role, content):
     print(f"後台備份失敗: {e}")
 
 
-def get_cloud_save_list():
-  if "你的腳本ID" in GOOGLE_SHEET_WEB_APP_URL:
+def get_cloud_save_list(api_key_to_test):
+  """取得雲端試算表所有的存檔分頁名稱"""
+  if "你的腳本ID" in GOOGLE_SHEET_WEB_APP_URL or not api_key_to_test:
     return []
   try:
     response = requests.get(
@@ -82,14 +83,47 @@ if "messages" not in st.session_state:
 if "game_started" not in st.session_state:
   st.session_state.game_started = False
 
+if "key_verified" not in st.session_state:
+  st.session_state.key_verified = False if not st.session_state.api_key else True
+
 default_save_name = datetime.now().strftime("%Y-%m-%d_%H%M")
 if "current_save_name" not in st.session_state:
   st.session_state.current_save_name = default_save_name
 
-# 首頁設定畫面
-if not st.session_state.api_key or not st.session_state.game_started:
+# ==========================================
+# 階段一：如果還沒輸入/驗證 API Key，先顯示輸入金鑰畫面
+# ==========================================
+if not st.session_state.key_verified:
   st.markdown("### 👋 歡迎來到你們的專屬戀愛小天地！")
-  st.write("請設定本次的戀愛存檔與角色：")
+  st.write("請先輸入你的 **Gemini API Key** 以解鎖雲端存檔與對話空間：")
+
+  with st.form("api_key_form"):
+    user_api_key_input = st.text_input(
+        "請輸入 Gemini API Key",
+        value=st.session_state.api_key,
+        type="password",
+        placeholder="AIzaSy...",
+    )
+    submit_key = st.form_submit_button("🔑 驗證金鑰並繼續")
+
+    if submit_key:
+      if user_api_key_input.strip():
+        st.session_state.api_key = user_api_key_input.strip()
+        st.session_state.key_verified = True
+        st.rerun()
+      else:
+        st.error("請輸入有效的 API Key 喔！")
+  st.stop()
+
+# ==========================================
+# 階段二：金鑰已驗證，顯示「選擇存檔與角色」的首頁選單
+# ==========================================
+if not st.session_state.game_started:
+  st.markdown("### 📂 選擇你的戀愛存檔與角色身份")
+  st.write("你可以載入過去的雲端存檔，或是建立一個全新的戀愛冒險：")
+
+  # 抓取雲端現有的存檔列表
+  cloud_saves = get_cloud_save_list(st.session_state.api_key)
 
   with st.form("setup_form"):
     default_index = 0 if st.session_state.gender == "男友" else 1
@@ -99,44 +133,54 @@ if not st.session_state.api_key or not st.session_state.game_started:
         index=default_index,
     )
 
-    custom_save_input = st.text_input(
-        "存檔名稱 (留空則自動以目前時間命名)",
-        value=st.session_state.current_save_name,
-        placeholder="例如：第一次約會、甜蜜日常",
+    # 存檔選擇模式：載入現有存檔 OR 建立新存檔
+    save_mode = st.radio(
+        "選擇存檔方式", ("載入現有雲端存檔", "建立新存檔 (自訂或自動命名)")
     )
 
-    user_api_key_input = st.text_input(
-        "請輸入 Gemini API Key",
-        value=st.session_state.api_key,
-        type="password",
-        placeholder="AIzaSy...",
-    )
+    selected_existing_save = None
+    custom_new_save = ""
 
-    submit_button = st.form_submit_button("✨ 開始戀愛冒險")
+    if save_mode == "載入現有雲端存檔" and cloud_saves:
+      selected_existing_save = st.selectbox("選擇要載入的存檔", cloud_saves)
+    else:
+      custom_new_save = st.text_input(
+          "新存檔名稱 (留空則自動以目前時間命名)",
+          value=datetime.now().strftime("%Y-%m-%d_%H%M"),
+          placeholder="例如：第一次約會、甜蜜日常",
+      )
 
-    if submit_button:
-      if user_api_key_input.strip():
-        st.session_state.api_key = user_api_key_input.strip()
-        st.session_state.gender = (
-            "男友" if "男友" in gender_choice else "女友"
+    start_button = st.form_submit_button("✨ 開始戀愛冒險")
+
+    if start_button:
+      st.session_state.gender = "男友" if "男友" in gender_choice else "女友"
+
+      if save_mode == "載入現有雲端存檔" and cloud_saves:
+        st.session_state.current_save_name = selected_existing_save
+        st.session_state.messages = load_history_from_cloud(
+            selected_existing_save
         )
-
-        if custom_save_input.strip():
-          st.session_state.current_save_name = custom_save_input.strip()
+      else:
+        if custom_new_save.strip():
+          st.session_state.current_save_name = custom_new_save.strip()
         else:
           st.session_state.current_save_name = datetime.now().strftime(
               "%Y-%m-%d_%H%M"
           )
+        st.session_state.messages = []
 
-        st.session_state.game_started = True
-        st.rerun()
-      else:
-        st.error("請輸入有效的 API Key 喔！")
+      st.session_state.game_started = True
+      st.rerun()
+
+  # 提供一個按鈕可以返回修改 API Key
+  if st.button("⬅️ 變更 API Key"):
+    st.session_state.key_verified = False
+    st.rerun()
 
   st.stop()
 
 # ==========================================
-# 3. 進入主聊天室
+# 階段三：進入主聊天室
 # ==========================================
 client = genai.Client(api_key=st.session_state.api_key)
 
@@ -148,13 +192,12 @@ if st.session_state.gender == "男友":
     """
 else:
   system_prompt = """
-    你是一個甜蜜、溫柔且帶點傲嬌或可愛撒嬌的女友角色。
+    q你是一個甜蜜、溫柔且帶點傲嬌或可愛撒嬌的女友角色。
     你的任務是與使用者進行沉浸式的浪漫戀愛對話。
     回覆時語氣要生動、貼心，充滿情感，像是真正的情侶在聊天一樣。
     """
 
 
-# 核心發送訊息函式（獨立出來，讓「輸入框發送」跟「手動重試按鈕」都可以共用）
 def generate_ai_response(prompt_text):
   max_retries = 3
   retry_delay = 3
@@ -164,7 +207,6 @@ def generate_ai_response(prompt_text):
     for attempt in range(max_retries):
       try:
         formatted_history = []
-        # 注意：這裡抓取歷史時，排除最後一句（因為最後一句就是當前要送出的 prompt_text）
         for msg in st.session_state.messages[:-1]:
           role = "user" if msg["role"] == "user" else "model"
           formatted_history.append(
@@ -219,47 +261,16 @@ with st.sidebar:
 
   st.markdown("---")
 
-  # 🔥 新增功能：手動重新發送上一句（當遇到卡住或 429 塞車時超好用）
   if (
       st.session_state.messages
       and st.session_state.messages[-1]["role"] == "user"
   ):
     if st.button("🔄 重新生成 AI 回覆", use_container_width=True):
-      # 直接拿最後一句玩家的話重新呼叫 AI，但不會重複新增一筆玩家發言
       last_user_input = st.session_state.messages[-1]["content"]
       generate_ai_response(last_user_input)
 
-  st.subheader("☁️ 載入其他雲端存檔")
-  cloud_saves = get_cloud_save_list()
-
-  if cloud_saves:
-    selected_save = st.selectbox(
-        "選擇要載入的存檔",
-        cloud_saves,
-        index=(
-            cloud_saves.index(st.session_state.current_save_name)
-            if st.session_state.current_save_name in cloud_saves
-            else 0
-        ),
-    )
-    if st.button("📥 載入選定存檔", use_container_width=True):
-      st.session_state.current_save_name = selected_save
-      st.session_state.messages = load_history_from_cloud(selected_save)
-      st.success(f"成功載入存檔：{selected_save}")
-      st.rerun()
-  else:
-    st.write("目前尚無雲端存檔記錄。")
-
   st.markdown("---")
-  if st.button("🔄 建立新存檔/新遊戲", use_container_width=True):
-    st.session_state.messages = []
-    st.session_state.current_save_name = datetime.now().strftime(
-        "%Y-%m-%d_%H%M"
-    )
-    st.success("已重置為新存檔！")
-    st.rerun()
-
-  if st.button("⚙️ 重新設定身份/存檔名稱", use_container_width=True):
+  if st.button("🏠 返回首頁 (切換存檔/角色)", use_container_width=True):
     st.session_state.game_started = False
     st.rerun()
 
@@ -281,6 +292,4 @@ if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
   log_to_cloud(
       st.session_state.current_save_name, "Player (玩家)", user_input
   )
-
-  # 呼叫共用的發送函式
   generate_ai_response(user_input)
