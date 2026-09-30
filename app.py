@@ -1,0 +1,99 @@
+from google import genai
+from google.genai import types
+import streamlit as st
+
+# 1. 設定頁面標題
+st.set_page_config(page_title="你好壞💖戀愛互動遊戲", page_icon="💖", layout="centered")
+
+st.title("💖 專屬對話與互動空間")
+st.write("和你的 壞壞戀人甜蜜對話，解鎖專屬浪漫畫面吧！")
+
+# 2. 從 Streamlit Secrets 讀取 API Key
+try:
+  api_key = st.secrets["GEMINI_API_KEY"]
+except Exception:
+  # 如果找不到密鑰，退回讓使用者在畫面上輸入的機制
+  api_key = st.sidebar.text_input("請輸入 Gemini API Key", type="password")
+
+if not api_key:
+  st.warning("請先設定 Gemini API Key 才能開始遊戲喔！")
+  st.stop()
+
+client = genai.Client(api_key=api_key)
+
+# 3. 設定角色性格 (System Instruction)
+system_prompt = """
+你是一個甜蜜、溫柔且帶點傲嬌或幽默感的戀愛對話角色。
+你的任務是與使用者進行沉浸式的浪漫戀愛對話。
+回覆時語氣要生動、貼心，充滿情感，像是真正的情侶在聊天一樣。
+偶爾可以撒嬌或關心對方。
+"""
+
+# 4. 初始化聊天紀錄
+if "chat_history" not in st.session_state:
+  st.session_state.chat_history = client.chats.create(
+      model="gemini-2.5-flash",
+      config=types.GenerateContentConfig(
+          system_instruction=system_prompt,
+          temperature=0.8,
+      ),
+  )
+
+if "messages" not in st.session_state:
+  st.session_state.messages = []
+
+# 5. 渲染對話訊息
+for message in st.session_state.messages:
+  with st.chat_message(message["role"]):
+    if message["type"] == "text":
+      st.markdown(message["content"])
+    elif message["type"] == "image":
+      st.image(message["content"], caption=message.get("caption", ""))
+
+# 6. 使用者輸入與回應
+if user_input := st.chat_input("說點什麼甜言蜜語吧..."):
+  st.session_state.messages.append(
+      {"role": "user", "type": "text", "content": user_input}
+  )
+  with st.chat_message("user"):
+    st.markdown(user_input)
+
+  with st.chat_message("assistant"):
+    with st.spinner("正在害羞思考中..."):
+      try:
+        response = st.session_state.chat_history.send_message(user_input)
+        reply_text = response.text
+
+        st.markdown(reply_text)
+        st.session_state.messages.append(
+            {"role": "assistant", "type": "text", "content": reply_text}
+        )
+
+        # 觸發圖片生成
+        if "拍張照" in user_input or "看你" in user_input or "約會" in user_input:
+          st.info("📸 正在生成專屬約會畫面...")
+          image_prompt = (
+              f"A romantic anime style illustration of a cute companion,"
+              f" based on context: {user_input}, high quality, beautiful lighting"
+          )
+          img_result = client.models.generate_images(
+              model="imagen-3.0-generate-002",
+              prompt=image_prompt,
+              config=types.GenerateImagesConfig(
+                  number_of_images=1,
+                  output_mime_type="image/jpeg",
+                  aspect_ratio="1:1",
+              ),
+          )
+          for generated_image in img_result.generated_images:
+            image_bytes = generated_image.image.image_bytes
+            st.image(image_bytes, caption="這是傳給你的照片喔！")
+            st.session_state.messages.append({
+                "role": "assistant",
+                "type": "image",
+                "content": image_bytes,
+                "caption": "這是傳給你的照片喔！",
+            })
+
+      except Exception as e:
+        st.error(f"發生了一點小錯誤：{e}")
